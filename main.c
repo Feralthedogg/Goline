@@ -57,103 +57,126 @@ static void free_go_file_list(GoFileList *list) {
 }
 
 static size_t fast_strlen(const char *str) {
-#if defined(__AVX2__)
-    size_t len = 0;
-    int mask;
-    __asm__ volatile (
-        "vxor %%ymm1, %%ymm1, %%ymm1\n\t"
-        "1:\n\t"
-        "vmovdqu (%[str], %[len], 1), %%ymm0\n\t"
-        "vpcmpeqb %%ymm1, %%ymm0, %%ymm0\n\t"
-        "vpmovmskb %%ymm0, %%eax\n\t"
-        "test %%eax, %%eax\n\t"
-        "jne 2f\n\t"
-        "add $32, %[len]\n\t"
-        "jmp 1b\n\t"
-        "2:\n\t"
-        : [len] "+r" (len), "=a" (mask)
-        : [str] "r" (str)
-        : "ymm0", "ymm1", "memory"
-    );
-    int offset = __builtin_ctz(mask);
-    return len + offset;
-#elif defined(__SSE2__)
-    size_t len = 0;
-    int mask;
-    __asm__ volatile (
-        "pxor %%xmm1, %%xmm1\n\t"
-        "1:\n\t"
-        "movdqu (%[str], %[len], 1), %%xmm0\n\t"
-        "pcmpeqb %%xmm1, %%xmm0\n\t"
-        "pmovmskb %%xmm0, %%eax\n\t"
-        "test %%eax, %%eax\n\t"
-        "jne 2f\n\t"
-        "add $16, %[len]\n\t"
-        "jmp 1b\n\t"
-        "2:\n\t"
-        : [len] "+r" (len), "=a" (mask)
-        : [str] "r" (str)
-        : "xmm0", "xmm1", "memory"
-    );
-    int offset = __builtin_ctz(mask);
-    return len + offset;
-#else
-    size_t l = 0;
-    while (str[l]) l++;
-    return l;
-#endif
-}
-
-static void fast_strcpy(char *dest, const char *src) {
-#if defined(__AVX2__)
-    size_t offset = 0;
-    int mask;
-    __asm__ volatile (
-        "vxor %%ymm1, %%ymm1, %%ymm1\n\t"
-        "1:\n\t"
-        "vmovdqu (%[src], %[offset], 1), %%ymm0\n\t"
-        "vpcmpeqb %%ymm1, %%ymm0, %%ymm2\n\t"
-        "vpmovmskb %%ymm2, %%eax\n\t"
-        "vmovdqu %%ymm0, (%[dest], %[offset], 1)\n\t"
-        "test %%eax, %%eax\n\t"
-        "jne 2f\n\t"
-        "add $32, %[offset]\n\t"
-        "jmp 1b\n\t"
-        "2:\n\t"
-        : [offset] "+r" (offset), "=a" (mask)
-        : [src] "r" (src), [dest] "r" (dest)
-        : "ymm0", "ymm1", "ymm2", "memory"
-    );
-    while (*(dest + offset) != '\0') {
-        offset++;
+    #if defined(__AVX2__)
+        size_t len = 0;
+        int mask;
+        __asm__ volatile (
+            "vxor %%ymm1, %%ymm1, %%ymm1\n\t"       // Zero ymm1
+            "1:\n\t"
+            "vmovdqu (%[str], %[len], 1), %%ymm0\n\t" // Load 32 bytes from str+len
+            "vpcmpeqb %%ymm1, %%ymm0, %%ymm0\n\t"     // Compare with zero
+            "vpmovmskb %%ymm0, %%eax\n\t"             // Create mask from comparison
+            "test %%eax, %%eax\n\t"                  // Test if any zero byte exists
+            "jne 2f\n\t"                             // Jump if found
+            "add $32, %[len]\n\t"                    // Increment len by 32
+            "jmp 1b\n\t"                             // Loop
+            "2:\n\t"
+            : [len] "+r" (len), "=a" (mask)
+            : [str] "r" (str)
+            : "ymm0", "ymm1", "memory"
+        );
+        int offset = __builtin_ctz(mask);
+        return len + offset;
+    #elif defined(__SSE2__)
+        size_t len = 0;
+        int mask;
+        __asm__ volatile (
+            "pxor %%xmm1, %%xmm1\n\t"                // Zero xmm1
+            "1:\n\t"
+            "movdqu (%[str], %[len], 1), %%xmm0\n\t"  // Load 16 bytes from str+len
+            "pcmpeqb %%xmm1, %%xmm0\n\t"             // Compare with zero
+            "pmovmskb %%xmm0, %%eax\n\t"             // Create mask from comparison
+            "test %%eax, %%eax\n\t"                 // Test if any zero byte exists
+            "jne 2f\n\t"                            // Jump if found
+            "add $16, %[len]\n\t"                   // Increment len by 16
+            "jmp 1b\n\t"                            // Loop
+            "2:\n\t"
+            : [len] "+r" (len), "=a" (mask)
+            : [str] "r" (str)
+            : "xmm0", "xmm1", "memory"
+        );
+        int offset = __builtin_ctz(mask);
+        return len + offset;
+    #else
+        size_t l = 0;
+        while (str[l]) l++;
+        return l;
+    #endif
     }
-#elif defined(__SSE2__)
-    size_t offset = 0;
-    int mask;
-    __asm__ volatile (
-        "pxor %%xmm1, %%xmm1\n\t"                      // xmm1 <- 0
-        "1:\n\t"
-        "movdqu (%[src], %[offset], 1), %%xmm0\n\t"
-        "pcmpeqb %%xmm1, %%xmm0, %%xmm2\n\t"
-        "pmovmskb %%xmm2, %%eax\n\t"
-        "movdqu %%xmm0, (%[dest], %[offset], 1)\n\t"
-        "test %%eax, %%eax\n\t"
-        "jne 2f\n\t"
-        "add $16, %[offset]\n\t"
-        "jmp 1b\n\t"
-        "2:\n\t"
-        : [offset] "+r" (offset), "=a" (mask)
-        : [src] "r" (src), [dest] "r" (dest)
-        : "xmm0", "xmm1", "xmm2", "memory"
-    );
-    while (*(dest + offset) != '\0') {
-        offset++;
-    }
-#else
-    while ((*dest++ = *src++));
-#endif
-}
+    
+    static inline void fast_strcpy(char *dest, const char *src, size_t dest_size) {
+        if (dest_size == 0)
+            return;
+    
+        size_t max_copy = dest_size - 1;
+        size_t offset = 0;
+        int mask;
+    
+    #if defined(__AVX2__)
+        while (offset + 32 <= max_copy) {
+            int local_mask;
+            __asm__ volatile (
+                "vxor   %%ymm1, %%ymm1, %%ymm1\n\t"             // Zero ymm1
+                "vmovdqu (%3, %1, 1), %%ymm0\n\t"                // Load 32 bytes from src+offset
+                "vpcmpeqb %%ymm1, %%ymm0, %%ymm2\n\t"             // Compare with zero
+                "vpmovmskb %%ymm2, %%eax\n\t"                     // Create mask from comparison
+                "vmovdqu %%ymm0, (%2, %1, 1)\n\t"                // Store 32 bytes to dest+offset
+                "movl   %%eax, %0\n\t"                           // Save mask to local_mask
+                : "=r" (local_mask)
+                : "r" (offset), "r" (dest), "r" (src)
+                : "cc", "eax", "ymm0", "ymm1", "ymm2", "memory"
+            );
+            if (local_mask != 0) {
+                unsigned long pos;
+                __asm__ volatile (
+                    "bsfq %1, %0" // Get index of least significant set bit
+                    : "=r" (pos)
+                    : "r" ((unsigned long)local_mask)
+                );
+                offset += pos;
+                dest[offset] = '\0';
+                return;
+            }
+            offset += 32;
+        }
+    #elif defined(__SSE2__)
+        while (offset + 16 <= max_copy) {
+            int local_mask;
+            __asm__ volatile (
+                "pxor   %%xmm1, %%xmm1\n\t"                     // Zero xmm1
+                "movdqu (%3, %1, 1), %%xmm0\n\t"                // Load 16 bytes from src+offset
+                "movdqa %%xmm0, %%xmm2\n\t"                     // Copy xmm0 to xmm2
+                "pcmpeqb %%xmm1, %%xmm2\n\t"                    // Compare with zero
+                "pmovmskb %%xmm2, %%eax\n\t"                    // Create mask from comparison
+                "movdqu %%xmm0, (%2, %1, 1)\n\t"                // Store 16 bytes to dest+offset
+                "movl   %%eax, %0\n\t"                          // Save mask to local_mask
+                : "=r" (local_mask)
+                : "r" (offset), "r" (dest), "r" (src)
+                : "cc", "eax", "xmm0", "xmm1", "xmm2", "memory"
+            );
+            if (local_mask != 0) {
+                unsigned long pos;
+                __asm__ volatile (
+                    "bsfl %1, %0" // Get index of least significant set bit
+                    : "=r" (pos)
+                    : "r" ((unsigned int)local_mask)
+                );
+                offset += pos;
+                dest[offset] = '\0';
+                return;
+            }
+            offset += 16;
+        }
+    #endif
 
+        while (offset < max_copy && src[offset] != '\0') {
+            dest[offset] = src[offset];
+            offset++;
+        }
+        dest[offset] = '\0';
+    }
+    
+    
 static void push_go_file(GoFileList *list, const char *path) {
     if (list->size == list->capacity) {
         size_t new_cap = (list->capacity == 0) ? 64 : list->capacity * 2;
@@ -167,7 +190,7 @@ static void push_go_file(GoFileList *list, const char *path) {
     }
     size_t len = fast_strlen(path);
     list->data[list->size].path = (char*)malloc(len + 1);
-    strcpy(list->data[list->size].path, path);
+    fast_strcpy(list->data[list->size].path, path, len + 1);
     list->data[list->size].line_count = 0;
     list->size++;
 }
@@ -257,8 +280,6 @@ static int process_one_file(const char *path, long *pLineCount) {
     free(output);
     return 0;
 }
-
-static GoFileList go_list;
 
 static void find_go_files(const char *root, GoFileList *list) {
     char search_path[MAX_PATH];
@@ -387,7 +408,7 @@ static void print_tree_only_go(const char *dir, const char *prefix, int is_last,
         snprintf(fullpath, sizeof(fullpath), "%s\\%s", dir, fd.cFileName);
 
         items[count].is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
-        strcpy(items[count].name, fd.cFileName);
+        fast_strcpy(items[count].name, fd.cFileName, sizeof(items[count].name));
         count++;
     } while (FindNextFileA(hFind, &fd) && count < 1000);
     FindClose(hFind);

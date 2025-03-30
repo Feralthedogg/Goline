@@ -1,5 +1,5 @@
 CC       = gcc
-CFLAGS   = -O2 -msse2
+CFLAGS   = -O2 -msse2 -g
 
 TARGET   = goline.exe
 
