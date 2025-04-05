@@ -10,8 +10,6 @@ This program searches for all **.go** files within a specified directory and pro
 - **Tree View Output:** Displays the calculated line counts for directories and files in a tree structure.
 - **Progress Display:** Shows the file processing progress with a progress bar.
 
-**Note:** This program is designed for **x86-64 architecture on Windows** and is built using GCC with SSE2 optimizations.
-
 ## LICENSE
 
 [MIT License](https://opensource.org/licenses/MIT)

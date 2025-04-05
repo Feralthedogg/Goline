@@ -1,4 +1,4 @@
-// main.c
+// src/windows/main.c
 
 #ifdef _WIN32
 #include <windows.h>

@@ -1,9 +1,19 @@
-CC       = gcc
-CFLAGS   = -O2 -msse2 -g
+ifeq ($(OS),Windows_NT)
+    TARGET = goline.exe
+    SRC    = src/windows/main.c
+    CFLAGS = -O2 -msse2 -g
+else
+    TARGET = goline
+    SRC    = src/linux/main.c
+    CFLAGS = -O2 -msse2 -g -std=c99 -Wall
+endif
 
-TARGET   = goline.exe
+CC = gcc
 
 all: $(TARGET)
 
-$(TARGET): main.c
-	$(CC) $(CFLAGS) -o $(TARGET) main.c
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC)
+
+clean:
+	rm -f $(TARGET)
